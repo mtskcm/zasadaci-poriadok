@@ -211,6 +211,7 @@
 <div id="toolbar">
   <h1>Zasadaci poriadok</h1>
   <button onclick="addTable()">+ Pridat stol</button>
+  <button onclick="shareLink()">🔗 Zdielat</button>
   <button class="secondary" onclick="exportData()">Export</button>
   <button class="secondary" onclick="importData()">Import</button>
   <button class="secondary" onclick="window.print()">Tlac</button>
@@ -223,7 +224,7 @@
 </div>
 
 <div id="help">
-  <b>Tip:</b> Klikni na stolicku pre meno. Tahaj stol za stred. Dvojklik na nazov stola pre premenovanie.
+  <b>Tip:</b> Klikni na stolicku pre meno. Tahaj stol za stred. Dvojklik na nazov stola pre premenovanie. Tlacidlom <b>Zdielat</b> posles aktualny poriadok cez link.
 </div>
 
 <input type="file" id="fileInput" accept=".json" style="display:none">
@@ -452,8 +453,69 @@ function resetAll() {
   render();
 }
 
-// init
-if (state.tables.length === 0) {
+// Encode state into URL hash (base64) so it can be shared via link
+function encodeStateToHash(s) {
+  const json = JSON.stringify(s);
+  // utf-8 safe base64
+  return btoa(unescape(encodeURIComponent(json)));
+}
+function decodeStateFromHash(hash) {
+  try {
+    const json = decodeURIComponent(escape(atob(hash)));
+    const parsed = JSON.parse(json);
+    if (parsed && Array.isArray(parsed.tables)) return parsed;
+  } catch(e) {}
+  return null;
+}
+
+async function shareLink() {
+  const encoded = encodeStateToHash(state);
+  const url = `${location.origin}${location.pathname}#data=${encoded}`;
+  try {
+    await navigator.clipboard.writeText(url);
+    showToast('Link skopirovany do schranky! Posli ho komu chces.');
+  } catch(e) {
+    // fallback: show in prompt
+    prompt2('Skopiruj tento link a posli ho:', url);
+  }
+}
+
+function showToast(msg) {
+  const t = document.createElement('div');
+  t.style.cssText = 'position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:#5b4636;color:white;padding:12px 20px;border-radius:8px;font-size:14px;z-index:300;box-shadow:0 6px 20px rgba(0,0,0,0.3);';
+  t.textContent = msg;
+  document.body.appendChild(t);
+  setTimeout(() => t.remove(), 3000);
+}
+
+// Check URL hash on load — if it contains shared data, offer to load it
+function checkSharedLink() {
+  const hash = location.hash;
+  const match = hash.match(/^#data=(.+)$/);
+  if (!match) return false;
+  const shared = decodeStateFromHash(match[1]);
+  if (!shared) return false;
+
+  const hasLocal = state.tables.length > 0;
+  const msg = hasLocal
+    ? `Dostal si zdielany zasadaci poriadok (${shared.tables.length} stolov). Nacitat ho? POZOR: prepise tvoj sucasny poriadok.`
+    : `Nacitat zdielany zasadaci poriadok (${shared.tables.length} stolov)?`;
+
+  if (confirm(msg)) {
+    state = shared;
+    saveState();
+    // clean URL so refresh doesn't re-ask
+    history.replaceState(null, '', location.pathname);
+    render();
+    return true;
+  }
+  return false;
+}
+
+// init - check for shared link first
+const loadedFromShare = checkSharedLink();
+
+if (!loadedFromShare && state.tables.length === 0) {
   // create a few starter tables
   for (let i = 0; i < 3; i++) {
     state.tables.push({
